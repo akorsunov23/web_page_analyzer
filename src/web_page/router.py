@@ -27,28 +27,25 @@ async def web_page_source_code_create(
     """Записываем исходный код страницы в БД."""
     url = str(url)
     log.info(f'Запросили исходный код: {url}')
+    try:
 
-    async with httpx.AsyncClient() as client:
-        try:
+        async with httpx.AsyncClient() as client:
             response: Response = await client.get(url)
-        except ConnectTimeout:
-            log.warning(f'Превышено ожидание ответа')
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail='Не возможно получить данные с сайта.'
-            )
+            assert response.status_code == status.HTTP_200_OK
+        source_code = WebPageSourceCode(url=url, source_code=response.text)
+        session.add(source_code)
+        await session.commit()
+        await session.refresh(source_code)
+        log.info(f'Исходный код: {url} успешно записан в БД - ID: {source_code.id}')
 
-    if response.status_code != status.HTTP_200_OK:
-        log.warning(f'Запрос за исходным кодом: {url} вернул статус - {response.status_code}')
+        return WebPageSourceCodeCreateResponse(id=source_code.id, url=url)
+
+    except (ConnectTimeout, AssertionError) as exc:
+        if isinstance(exc, ConnectTimeout):
+            log.warning('Превышено ожидание ответа от сайта')
+        else:
+            log.warning(f'Запрос за исходным кодом: {url} завершился не успешно.')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail='Не возможно получить данные с сайта.'
         )
-
-    source_code = WebPageSourceCode(url=url, source_code=response.text)
-    session.add(source_code)
-    await session.commit()
-    await session.refresh(source_code)
-    log.info(f'Исходный код: {url} успешно записан в БД - ID: {source_code.id}')
-
-    return WebPageSourceCodeCreateResponse(id=source_code.id, url=url)
